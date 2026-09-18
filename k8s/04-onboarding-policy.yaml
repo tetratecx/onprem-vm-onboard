@@ -1,0 +1,24 @@
+# Who may onboard into the WorkloadGroup.
+#
+# The Hydra token carries no attribute object, so the match is on the issuer and
+# the 'sub' claim only - which is the SPIFFE ID of the VM identity:
+#
+#   "sub": "spiffe://hydra-test.ms.com/ms/user/nizam"
+#
+# install-ms-cp.sh renders the subject list from ALLOWED_SUBJECTS in ms-cp.env.
+apiVersion: authorization.onboarding.tetrate.io/v1alpha1
+kind: OnboardingPolicy
+metadata:
+  name: allow-ms-vms
+  namespace: ${APP_NAMESPACE}
+spec:
+  allow:
+  - workloads:
+    - jwt:
+        issuer: ${HYDRA_ISSUER}
+        subjects:
+${ALLOWED_SUBJECTS_BLOCK}
+    onboardTo:
+    - workloadGroupSelector:
+        matchLabels:
+          app: ${APP_NAME}

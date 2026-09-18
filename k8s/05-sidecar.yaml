@@ -1,0 +1,39 @@
+# The VMs run without iptables redirection, so the sidecar is told explicitly
+# where the local application listens, and which addresses to bind for egress.
+apiVersion: networking.istio.io/v1beta1
+kind: Sidecar
+metadata:
+  name: ${APP_NAME}-vm-no-iptables
+  namespace: ${APP_NAMESPACE}
+spec:
+  workloadSelector:
+    labels:
+      app: ${APP_NAME}
+      class: vm
+  ingress:
+  - defaultEndpoint: 127.0.0.1:8000
+    port:
+      name: http
+      number: 8000
+      protocol: HTTP
+  egress:
+  # These addresses must be in the VM's /etc/hosts, so that the hostnames of the
+  # services reached through egress resolve locally:
+  #   127.0.0.2 zipkin.istio-system
+  - bind: 127.0.0.2
+    port:
+      number: 9411
+      name: http-zipkin
+      protocol: HTTP
+    hosts:
+    - istio-system/zipkin.istio-system.svc.cluster.local
+  # Port 80 is privileged and Envoy cannot bind it on the VM by default:
+  #   sudo setcap CAP_NET_BIND_SERVICE=+eip /usr/local/bin/envoy
+  # (install-ms-vm.sh does this). Uncomment to reach another service from the VM.
+  # - bind: 127.0.0.2
+  #   port:
+  #     number: 80
+  #     name: http-accounting
+  #     protocol: HTTP
+  #   hosts:
+  #   - ./accounting.${APP_NAMESPACE}.svc.cluster.local

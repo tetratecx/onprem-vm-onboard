@@ -1,0 +1,13 @@
+# Rendered by install-ms-vm.sh - edit the template, not this file.
+apiVersion: config.agent.onboarding.tetrate.io/v1alpha1
+kind: OnboardingConfiguration
+onboardingEndpoint:
+  host: ${VM_ENDPOINT}
+  transportSecurity:
+    tls:
+      insecureSkipVerify: ${ONBOARDING_TLS_INSECURE}
+workloadGroup:
+  namespace: ${WORKLOAD_GROUP_NAMESPACE}
+  name: ${WORKLOAD_GROUP_NAME}
+settings:
+  connectedOver: ${CONNECTED_OVER}

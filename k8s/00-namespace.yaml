@@ -1,0 +1,9 @@
+# The namespace the VM workloads join. Drop this file if the namespace is
+# already managed elsewhere.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ${APP_NAMESPACE}
+  labels:
+    istio-injection: enabled

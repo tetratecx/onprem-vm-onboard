@@ -1,0 +1,64 @@
+# Rendered by install-ms-vm.sh - edit the template, not this file.
+#
+# The credential comes from Hydra, through the local shim:
+#
+#   Onboarding Agent -> ext-jwt-credential plugin -> http://127.0.0.1:PORT/token
+#                                                 -> hydra ... service token <audience>
+apiVersion: config.agent.onboarding.tetrate.io/v1alpha1
+kind: AgentConfiguration
+host:
+  custom:
+    credential:
+    - plugin:
+        name: ext-jwt-credential
+        path: ${PLUGIN_PATH}
+        env:
+        # --- the issuer -------------------------------------------------------
+        # the 'iss' claim of the Hydra token; the ControlPlane must trust it
+        - name: EXT_JWT_ISSUER
+          value: ${HYDRA_ISSUER}
+        # the local shim, not a real OAuth server: discovery is off and the
+        # endpoint is pinned
+        - name: EXT_JWT_DISCOVERY_ENABLED
+          value: "false"
+        - name: EXT_JWT_TOKEN_ENDPOINT
+          value: http://${SHIM_LISTEN_ADDRESS}:${SHIM_LISTEN_PORT}/token
+
+        # --- how the plugin talks to the shim ---------------------------------
+        - name: EXT_JWT_GRANT_TYPE
+          value: client_credentials
+        # any name: the shim does not identify clients, it only checks the secret
+        - name: EXT_JWT_CLIENT_ID
+          value: onboarding-agent
+        - name: EXT_JWT_CLIENT_AUTH_METHOD
+          value: client_secret_post
+        - name: EXT_JWT_CLIENT_SECRET_FILE
+          value: ${SHIM_SECRET_FILE}
+
+        # --- the audience -----------------------------------------------------
+        # the plugin sends the UID of the Workload Onboarding Plane as the
+        # 'audience' parameter; the shim passes it to the hydra command, and
+        # Hydra mints the token for it
+        - name: EXT_JWT_AUDIENCE_MODE
+          value: param
+        - name: EXT_JWT_AUDIENCE_PARAM
+          value: audience
+        # fail here rather than at onboarding time if 'aud' comes back wrong
+        - name: EXT_JWT_REQUIRE_AUDIENCE
+          value: "true"
+${JWKS_ENV}
+        # --- resilience / caching ---------------------------------------------
+        # Hydra tokens live an hour; renew a minute early
+        - name: EXT_JWT_EXPIRY_SKEW
+          value: 60s
+        - name: EXT_JWT_REQUEST_TIMEOUT
+          value: 90s
+        - name: EXT_JWT_TIMEOUT
+          value: 120s
+        - name: EXT_JWT_RETRY_MAX_ATTEMPTS
+          value: "3"
+        - name: EXT_JWT_CACHE_FILE
+          value: ${CREDENTIAL_CACHE_FILE}
+
+        - name: EXT_JWT_LOG_LEVEL
+          value: info

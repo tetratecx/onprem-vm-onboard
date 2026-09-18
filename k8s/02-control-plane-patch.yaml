@@ -1,0 +1,50 @@
+# # Merged into the ControlPlane of the cluster that hosts the Workload Onboarding
+# # Plane. Applied by install-ms-cp.sh with 'kubectl patch --type=merge'.
+# spec:
+#   meshExpansion:
+#     onboarding:
+#       localRepository: {}
+#       endpoint:
+#         hosts:
+#           - ${VM_ENDPOINT}
+#         secretName: vm-onboarding
+#       # The UID the VMs must put in the 'aud' claim. The Hydra tokens carry the
+#       # vmgateway URL as their audience:
+#       #   hydra -e dev service token https://${VM_ENDPOINT}
+#       # so the UID has to be exactly that URL.
+#       uid: https://${VM_ENDPOINT}
+#       workloads:
+#         authentication:
+#           jwt:
+#             issuers:
+#             - issuer: ${HYDRA_ISSUER}
+#               shortName: ${HYDRA_SHORT_NAME}
+#               jwksUri: ${HYDRA_JWKS_URI}
+#               # No tokenFields: the Hydra token carries no attribute object, so
+#               # an OnboardingPolicy matches on 'issuer' and 'sub' only.
+#               # 'tokenFields.subject' is deliberately absent - it is stripped
+#               # before reaching the OnboardingPlane, and the subject is always
+#               # the 'sub' claim, which is already the SPIFFE ID here.
+#   components:
+#     xcp:
+#       kubeSpec:
+#         overlays:
+#         - apiVersion: install.xcp.tetrate.io/v1alpha1
+#           kind: EdgeXcp
+#           name: edge-xcp
+#           patches:
+#           - path: spec.components.istio.kubeSpec.overlays[-1]
+#             value:
+#               apiVersion: install.istio.io/v1alpha1
+#               kind: IstioOperator
+#               name: xcp-iop-default
+#               patches:
+#               - path: spec.components.ingressGateways[name:vmgateway].k8s.overlays[-1]
+#                 value:
+#                   apiVersion: v1
+#                   kind: Service
+#                   name: vmgateway
+#                   patches:
+#                   - path: metadata.annotations
+#                     value:
+#                       external-dns.alpha.kubernetes.io/hostname: ${VM_ENDPOINT}
