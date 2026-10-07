@@ -1,13 +1,25 @@
-# Rendered by install-ms-vm.sh - edit the template, not this file.
+# Rendered by install-vm.sh from templates/onboarding.config.yaml.tmpl - edit the
+# template and re-run the script rather than this file.
+#
+# Where this VM onboards, and which WorkloadGroup it joins. The group must
+# already exist in the cluster (k8s/03-workload-group.yaml).
 apiVersion: config.agent.onboarding.tetrate.io/v1alpha1
 kind: OnboardingConfiguration
 onboardingEndpoint:
   host: ${VM_ENDPOINT}
   transportSecurity:
     tls:
+      # "true" while the vmgateway serves a certificate from an issuer this VM
+      # does not trust. Issue that certificate from the corporate CA and set
+      # ONBOARDING_TLS_INSECURE="false" in vm.env.
       insecureSkipVerify: ${ONBOARDING_TLS_INSECURE}
 workloadGroup:
   namespace: ${WORKLOAD_GROUP_NAMESPACE}
   name: ${WORKLOAD_GROUP_NAME}
 settings:
+  # Which address the generated WorkloadEntry carries:
+  #   INTERNET - the cluster reaches this VM over a public address
+  #   VPC      - over the private network
+  # Pick the one the cluster can actually route to, or the mesh will have an
+  # endpoint it cannot reach.
   connectedOver: ${CONNECTED_OVER}

@@ -1,50 +1,73 @@
-# # Merged into the ControlPlane of the cluster that hosts the Workload Onboarding
-# # Plane. Applied by install-ms-cp.sh with 'kubectl patch --type=merge'.
-# spec:
-#   meshExpansion:
-#     onboarding:
-#       localRepository: {}
-#       endpoint:
-#         hosts:
-#           - ${VM_ENDPOINT}
-#         secretName: vm-onboarding
-#       # The UID the VMs must put in the 'aud' claim. The Hydra tokens carry the
-#       # vmgateway URL as their audience:
-#       #   hydra -e dev service token https://${VM_ENDPOINT}
-#       # so the UID has to be exactly that URL.
-#       uid: https://${VM_ENDPOINT}
-#       workloads:
-#         authentication:
-#           jwt:
-#             issuers:
-#             - issuer: ${HYDRA_ISSUER}
-#               shortName: ${HYDRA_SHORT_NAME}
-#               jwksUri: ${HYDRA_JWKS_URI}
-#               # No tokenFields: the Hydra token carries no attribute object, so
-#               # an OnboardingPolicy matches on 'issuer' and 'sub' only.
-#               # 'tokenFields.subject' is deliberately absent - it is stripped
-#               # before reaching the OnboardingPlane, and the subject is always
-#               # the 'sub' claim, which is already the SPIFFE ID here.
-#   components:
-#     xcp:
-#       kubeSpec:
-#         overlays:
-#         - apiVersion: install.xcp.tetrate.io/v1alpha1
-#           kind: EdgeXcp
-#           name: edge-xcp
-#           patches:
-#           - path: spec.components.istio.kubeSpec.overlays[-1]
-#             value:
-#               apiVersion: install.istio.io/v1alpha1
-#               kind: IstioOperator
-#               name: xcp-iop-default
-#               patches:
-#               - path: spec.components.ingressGateways[name:vmgateway].k8s.overlays[-1]
-#                 value:
-#                   apiVersion: v1
-#                   kind: Service
-#                   name: vmgateway
-#                   patches:
-#                   - path: metadata.annotations
-#                     value:
-#                       external-dns.alpha.kubernetes.io/hostname: ${VM_ENDPOINT}
+# Merged into the ControlPlane of the cluster that hosts the Workload Onboarding
+# Plane. install-cp.sh applies it with 'kubectl patch --type=merge'; it is never
+# applied with 'kubectl apply', which would drop the rest of the ControlPlane.
+#
+# Three things are configured here:
+#
+#   1. endpoint  - the hostname and serving certificate of the vmgateway
+#   2. uid       - the identity of the onboarding plane. It must appear in the
+#                  'aud' claim of every token a VM presents, or the plane
+#                  rejects it.
+#   3. issuers   - the Keycloak realm whose tokens the plane trusts
+apiVersion: install.tetrate.io/v1alpha1
+kind: ControlPlane
+metadata:
+  name: controlplane
+  namespace: istio-system
+spec:
+  meshExpansion:
+    onboarding:
+      localRepository: {}
+      endpoint:
+        hosts:
+        - ${VM_ENDPOINT}
+        secretName: vm-onboarding
+      # The audience the VM tokens must carry. Keycloak puts it in 'aud' through
+      # the Audience protocol mapper added by keycloak/add-audience.sh, and the
+      # VM checks it before the agent starts (ONBOARDING_PLANE_UID in vm/vm.env).
+      uid: https://${VM_ENDPOINT}
+      workloads:
+        authentication:
+          jwt:
+            issuers:
+            - issuer: ${KEYCLOAK_ISSUER}
+              shortName: ${KEYCLOAK_SHORT_NAME}
+              # The plane fetches this URL itself, so the cluster needs network
+              # access to Keycloak. If it does not have it, replace jwksUri with
+              # an inline 'jwks' document - see k8s/README.md.
+              jwksUri: ${KEYCLOAK_JWKS_URI}
+              tokenFields:
+                # Where the workload attributes live in the token. The Keycloak
+                # clients emit them under 'custom_attributes' through hardcoded
+                # claim mappers, and an OnboardingPolicy matches on them.
+                attributes:
+                  jsonPath: .custom_attributes
+                # 'subject' is deliberately not set: it is stripped from the
+                # ControlPlane before reaching the OnboardingPlane, so the
+                # subject an OnboardingPolicy matches is always the 'sub' claim.
+  components:
+    xcp:
+      kubeSpec:
+        overlays:
+        - apiVersion: install.xcp.tetrate.io/v1alpha1
+          kind: EdgeXcp
+          name: edge-xcp
+          patches:
+          - path: spec.components.istio.kubeSpec.overlays[-1]
+            value:
+              apiVersion: install.istio.io/v1alpha1
+              kind: IstioOperator
+              name: xcp-iop-default
+              patches:
+              - path: spec.components.ingressGateways[name:vmgateway].k8s.overlays[-1]
+                value:
+                  apiVersion: v1
+                  kind: Service
+                  name: vmgateway
+                  patches:
+                  - path: metadata.annotations
+                    value:
+                      # Only used when external-dns runs in the cluster. Without
+                      # it, create the DNS record by hand - install-cp.sh prints
+                      # the LoadBalancer address to point it at.
+                      external-dns.alpha.kubernetes.io/hostname: ${VM_ENDPOINT}

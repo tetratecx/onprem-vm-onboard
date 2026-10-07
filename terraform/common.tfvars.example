@@ -1,0 +1,97 @@
+# Settings shared by every cloud. deploy.sh passes this file to each stack it
+# runs, so these values stay in one place.
+#
+#   cp common.tfvars.example common.tfvars
+#
+# Per-cloud settings - region, instance_count, instance size - live in
+# stacks/<cloud>/<cloud>.tfvars.
+
+name_prefix = "tsb-vm-ms"
+
+# --- mandatory Tetrate tags -------------------------------------------------
+# The sandbox accounts refuse to create resources without these, so an empty
+# value fails the apply rather than producing a resource that cannot come up.
+# Override only what you need; anything omitted keeps the default shown.
+#
+# These are applied to every resource in every cloud that supports tagging.
+# On GCP, label values accept only lowercase letters, digits, '-' and '_', so
+# "sales:ce" is applied there as "sales-ce" - check it with:
+#   terraform -chdir=stacks/gcp output labels_rewritten_for_gcp
+tetrate_tags = {
+  tetrate_owner    = "nizam"
+  tetrate_team     = "sales:ce"
+  tetrate_purpose  = "demo"
+  tetrate_lifespan = "ongoing"
+  tetrate_customer = "apigw-demo"
+}
+
+# --- SSH --------------------------------------------------------------------
+# Who may reach SSH. They reach the public instances directly, including the one
+# acting as jump host; the private instances are reached through it.
+# Required. Use ["0.0.0.0/0"] only for a throwaway lab.
+ssh_allowed_cidrs   = ["203.0.113.4/32"]
+ssh_public_key_path = "~/.ssh/id_rsa.pub"
+
+# --- how the cluster reaches the VMs ----------------------------------------
+# Where mesh traffic comes from: the node or pod CIDRs of the TSB cluster, or
+# its NAT address. Without this nothing can reach an onboarded VM.
+mesh_allowed_cidrs = ["10.0.0.0/8"]
+
+# --- placement --------------------------------------------------------------
+# false: public subnet, a public IP per instance, traffic leaves directly.
+# true:  private subnet, no public IP, all egress through a managed NAT gateway
+#        (AWS NAT Gateway / GCP Cloud NAT / Azure NAT Gateway). One public mesh
+#        VM is added to jump through, so "2 private" means 3 instances - see
+#        public_jump_host below.
+#
+# This applies to every instance of every enabled cloud. To put some instances
+# in each subnet, set private_instance_count and public_instance_count in that
+# cloud's own tfvars instead - they override this flag for that stack.
+private_instances = false
+
+# How private instances are reached over SSH.
+#
+# true (default): one of the public instances doubles as the jump host, and one
+#   is added if the counts asked for none. It is a full mesh VM - onboarded,
+#   running the workload, carrying traffic - not an idle bastion. So
+#   "private_instances = true, instance_count = 2" builds 3 instances: 2 private
+#   plus 1 public that is both a workload and the way in.
+#
+# false: nothing is added and no jump host is designated. Private instances then
+#   take SSH straight from ssh_allowed_cidrs, which is what you want when
+#   connectivity already exists (VPN, Direct Connect, SSM, IAP, Azure Bastion).
+# public_jump_host = true
+
+# --- what the instances are prepared for ------------------------------------
+# These become /opt/vm-onboarding/vm.env on every instance, matching vm/vm.env.
+# The Keycloak client secret is deliberately absent: it would be stored in clear
+# text in the Terraform state. Pass it at install time:
+#   KEYCLOAK_CLIENT_SECRET='...' ./push-to-vm.sh <user>@<host>
+onboarding = {
+  vm_endpoint              = "vms.tsb-ms-demo.aws-ce.sandbox.tetrate.io"
+  keycloak_realm_url       = "https://keycloak.apigw.aws-ce.sandbox.tetrate.io/realms/tetrate"
+  keycloak_client_id       = "vm-write"
+  workload_group_namespace = "payments"
+  workload_group_name      = "payments-v1"
+
+  # onboarding_plane_uid defaults to "https://<vm_endpoint>", which is what
+  # k8s/02-control-plane-patch.yaml sets. Override only if the plane's UID
+  # differs.
+  # onboarding_plane_uid = "https://vms.tsb-ms-demo.aws-ce.sandbox.tetrate.io"
+
+  # connected_over is derived from private_instances when unset:
+  # VPC for private instances, INTERNET for public ones.
+  # connected_over = "VPC"
+
+  # false once the vmgateway certificate is issued by a CA the VMs trust.
+  # onboarding_tls_insecure = true
+
+  # false if the real application is already on the instances.
+  # install_obstester = true
+}
+
+# Set false for bare instances with nothing installed.
+# prepare_onboarding = true
+
+# Extra tags/labels on everything, on top of tetrate_tags.
+# tags = { environment = "lab", ticket = "PROJ-1234" }

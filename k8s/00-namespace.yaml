@@ -1,5 +1,7 @@
-# The namespace the VM workloads join. Drop this file if the namespace is
-# already managed elsewhere.
+# The namespace the VM workloads join.
+#
+# Drop this file if the namespace already exists and is managed elsewhere -
+# install-cp.sh applies every *.yaml in this directory.
 ---
 apiVersion: v1
 kind: Namespace

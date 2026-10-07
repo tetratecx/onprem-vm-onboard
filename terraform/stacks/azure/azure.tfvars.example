@@ -1,0 +1,31 @@
+# Azure-specific settings. Shared settings live in ../../common.tfvars.
+#
+#   cp azure.tfvars.example azure.tfvars
+#   ../../deploy.sh apply azure
+
+# Leave unset to use ARM_SUBSCRIPTION_ID or the CLI's current subscription.
+# subscription_id = "00000000-0000-0000-0000-000000000000"
+
+location       = "eastus"
+instance_count = 2
+vm_size        = "Standard_D2s_v3"
+os             = "rhel9"
+# --- placement ---------------------------------------------------------------
+# By default all of these instances take the placement from private_instances in
+# ../../common.tfvars: all public, or all private behind the NAT gateway.
+#
+# To mix both in this one cloud, set the two counts instead. instance_count and
+# private_instances are then ignored here. For two private and one public:
+#
+# private_instance_count = 2
+# public_instance_count  = 1
+
+# root_volume_size = 64
+# vnet_cidr        = "10.44.0.0/16"
+# admin_username   = "azureuser"
+
+# A non-RHEL image. Accept the marketplace terms first:
+#   az vm image terms accept --publisher resf --offer rockylinux-x86_64 --plan 9-base
+# and note that such images also need a `plan` block, which modules/azure does
+# not set - add it there if you go this route.
+# image = { publisher = "resf", offer = "rockylinux-x86_64", sku = "9-base" }

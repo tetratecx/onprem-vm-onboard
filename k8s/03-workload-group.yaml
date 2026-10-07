@@ -1,31 +1,33 @@
-# # The service the VMs join, and a Kubernetes pod of the same service so traffic
-# # can be seen flowing both ways. Drop the Deployment if the MS cluster already
-# # runs the real workload.
+# The service the VMs join.
+#
+# A WorkloadGroup is the template the onboarding plane stamps a WorkloadEntry
+# from when a VM is admitted. The VM points at it by namespace and name
+# (WORKLOAD_GROUP_NAMESPACE / WORKLOAD_GROUP_NAME in vm/vm.env).
+#
+# The Service and ServiceAccount below are what the rest of the mesh routes to.
+# Keep them even when no pod of this app runs in the cluster: the VMs provide the
+# endpoints.
 ---
 apiVersion: v1
-kind: Namespace
+kind: Service
 metadata:
-  name: ${APP_NAMESPACE}
-# ---
-# apiVersion: v1
-# kind: Service
-# metadata:
-#   name: ${APP_NAME}
-#   namespace: ${APP_NAMESPACE}
-#   labels:
-#     app: ${APP_NAME}
-#     service: ${APP_NAME}
-# spec:
-#   ports:
-#     - port: 80
-#       targetPort: 8000
-#       name: http
-#     - port: 3000
-#       targetPort: 3000
-#       name: tcp
-#   selector:
-#     app: ${APP_NAME}
+  name: ${APP_NAME}
+  namespace: ${APP_NAMESPACE}
+  labels:
+    app: ${APP_NAME}
+    service: ${APP_NAME}
+spec:
+  ports:
+  - port: 80
+    targetPort: 8000
+    name: http
+  - port: 3000
+    targetPort: 3000
+    name: tcp
+  selector:
+    app: ${APP_NAME}
 ---
+# The identity the onboarded VMs run as inside the mesh.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -33,53 +35,7 @@ metadata:
   namespace: ${APP_NAMESPACE}
   labels:
     app: ${APP_NAME}
-# ---
-# apiVersion: apps/v1
-# kind: Deployment
-# metadata:
-#   name: ${WORKLOAD_GROUP_NAME}
-#   namespace: ${APP_NAMESPACE}
-#   labels:
-#     app: ${APP_NAME}
-#     version: v1
-# spec:
-#   selector:
-#     matchLabels:
-#       app: ${APP_NAME}
-#       version: v1
-#   template:
-#     metadata:
-#       labels:
-#         app: ${APP_NAME}
-#         version: v1
-#     spec:
-#       serviceAccountName: sa-${APP_NAME}
-#       containers:
-#         - name: obs-tester
-#           # a public image: mirror it into the MS registry if egress is blocked
-#           image: docker.io/nacx/obs-tester-server:2.0
-#           imagePullPolicy: Always
-#           args:
-#             - '--log-output-level=all:debug'
-#             - '--http-listen-address=:8000'
-#             - '--tcp-listen-address=:3000'
-#             - '--ep-duration=200ms'
-#             - '--ep-errors=0'
-#             - '--ep-headers=0'
-#             - '--zipkin-reporter-endpoint=http://zipkin.istio-system.svc.cluster.local:9411/api/v2/spans'
-#             - '--zipkin-sample-rate=1.0'
-#             - '--zipkin-singlehost-spans'
-#           env:
-#             - name: SVCNAME
-#               value: ${APP_NAME}
-#           ports:
-#             - name: http
-#               containerPort: 8000
-#             - name: tcp
-#               containerPort: 3000
 ---
-# The group the onboarding VMs are admitted into. ms-vm/ms-vm.env points at it
-# with WORKLOAD_GROUP_NAMESPACE / WORKLOAD_GROUP_NAME.
 apiVersion: networking.istio.io/v1alpha3
 kind: WorkloadGroup
 metadata:
@@ -93,6 +49,8 @@ spec:
     labels:
       app: ${APP_NAME}
       version: v1
+      # 05-sidecar.yaml selects on this label, and 04-onboarding-policy.yaml
+      # admits VMs into any group labelled app: ${APP_NAME}
       class: vm
     serviceAccount: sa-${APP_NAME}
     network: virtual-machines

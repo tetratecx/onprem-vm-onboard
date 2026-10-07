@@ -1,0 +1,25 @@
+# Rendered by install-vm.sh. The demo workload the mesh routes to: it listens on
+# 127.0.0.1:8000, which is the defaultEndpoint in k8s/05-sidecar.yaml.
+[Unit]
+Description=ObsTester ${OBSTESTER_SVCNAME} Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Environment=SVCNAME=${OBSTESTER_SVCNAME}
+# Listening on 127.0.0.1 only: all traffic in and out goes through the sidecar.
+ExecStart=${OBSTESTER_PATH} \
+    --log-output-level=all:debug \
+    --http-listen-address=127.0.0.1:8000 \
+    --tcp-listen-address=127.0.0.1:8888 \
+    --health-address=127.0.0.1:7777 \
+    --ep-duration=0 \
+    --ep-errors=0 \
+    --ep-headers=0 \
+    --zipkin-reporter-endpoint=http://zipkin.istio-system:9411/api/v2/spans \
+    --zipkin-sample-rate=1.0 \
+    --zipkin-singlehost-spans
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

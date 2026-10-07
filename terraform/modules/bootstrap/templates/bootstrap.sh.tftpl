@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+#
+# Rendered by Terraform from templates/bootstrap.sh.tftpl and run by cloud-init
+# on first boot. It gets the VM to the point where ../vm/install-vm.sh can run
+# against it unchanged.
+#
+# It deliberately does NOT onboard the VM: the credential plugin binary has to be
+# copied onto the machine (it is not published by the vmgateway), and the
+# Keycloak client secret must not pass through the Terraform state. Both are
+# handled by:
+#
+#   KEYCLOAK_CLIENT_SECRET='...' ../vm/push-to-vm.sh <user>@<address>
+set -uo pipefail
+
+exec > >(tee -a /var/log/vm-onboarding-bootstrap.log) 2>&1
+echo "=== vm-onboarding bootstrap started $(date -Is) ==="
+
+# --- the packages install-vm.sh checks for --------------------------------
+# curl: download the onboarding packages from the vmgateway
+# gettext: envsubst, used to render the agent configuration
+# libcap: setcap, so Envoy may bind privileged ports
+# python3: optional, used by get-token.sh --decode
+#
+# The rpm flags skip the source and debug repos. They hold no binary packages, so
+# they can never satisfy any of this, yet the cloud RHEL images enable four of
+# them and the GCP RHUI mirrors regularly serve stale metadata for them - which
+# otherwise aborts the whole transaction. skip_if_unavailable stops one flaky
+# mirror from failing an install the other repos can satisfy.
+pkg_ok=yes
+if command -v dnf >/dev/null 2>&1; then
+  dnf install -y --disablerepo='*-source-rpms' --disablerepo='*-debug-rpms' \
+    --setopt='*.skip_if_unavailable=1' curl gettext libcap python3 || pkg_ok=no
+elif command -v yum >/dev/null 2>&1; then
+  yum install -y --disablerepo='*-source-rpms' --disablerepo='*-debug-rpms' \
+    --setopt='*.skip_if_unavailable=1' curl gettext libcap python3 || pkg_ok=no
+elif command -v apt-get >/dev/null 2>&1; then
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update -y || pkg_ok=no
+  apt-get install -y curl gettext-base libcap2-bin python3 || pkg_ok=no
+elif command -v zypper >/dev/null 2>&1; then
+  zypper --non-interactive install curl gettext-tools libcap-progs python3 || pkg_ok=no
+else
+  echo "no supported package manager found; install curl, gettext and libcap by hand"
+  pkg_ok=no
+fi
+
+# Say so loudly rather than finishing as if nothing happened: the base image may
+# already carry these tools, in which case onboarding still works, but if it does
+# not then install-vm.sh is the thing that will fail, far from the cause.
+if [ "$pkg_ok" != yes ]; then
+  echo
+  echo "WARNING: installing the prerequisites did not succeed."
+  echo "         Onboarding needs curl, envsubst (gettext) and setcap (libcap)."
+  echo "         Check which are present:  command -v curl envsubst setcap"
+  echo
+fi
+
+install -d -m 0755 /opt/vm-onboarding
+
+# --- a ready-to-use env file for install-vm.sh ----------------------------
+# Same keys as vm/vm.env. The client secret is absent on purpose - pass it in
+# the environment at install time.
+cat >/opt/vm-onboarding/vm.env <<'VMENV'
+${vm_env}
+VMENV
+chmod 0644 /opt/vm-onboarding/vm.env
+
+%{ if obstester_hosts != "" ~}
+# --- /etc/hosts entries for the sidecar's egress listeners ----------------
+# The Sidecar resource binds egress on 127.0.0.2, so these names must resolve
+# there for the VM's outbound mesh calls to be captured.
+%{ for host in split(" ", obstester_hosts) ~}
+grep -qE "^127\.0\.0\.2[[:space:]]+${host}\b" /etc/hosts \
+  || echo '127.0.0.2 ${host}' >>/etc/hosts
+%{ endfor ~}
+%{ endif ~}
+
+# --- a reminder on the console and in the MOTD ----------------------------
+cat >/etc/motd <<'MOTD'
+
+This VM is prepared for TSB mesh onboarding but is NOT onboarded yet.
+Settings are in /opt/vm-onboarding/vm.env. To finish, from the repository:
+
+    KEYCLOAK_CLIENT_SECRET='<the client secret>' \
+      ./vm/push-to-vm.sh <user>@<this host>
+
+Bootstrap log: /var/log/vm-onboarding-bootstrap.log
+(check it for a WARNING if onboarding complains about a missing tool)
+
+MOTD
+
+echo "=== vm-onboarding bootstrap finished $(date -Is) ==="

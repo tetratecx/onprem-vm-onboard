@@ -1,0 +1,54 @@
+# GCP-specific settings. Shared settings live in ../../common.tfvars.
+#
+#   cp gcp.tfvars.example gcp.tfvars
+#   ../../deploy.sh apply gcp
+
+# The project to build in. With create_project = false (the default) it must
+# already exist - find yours with:  gcloud projects list
+project_id = "my-gcp-project"
+
+# --- let Terraform own the project -------------------------------------------
+# Off by default: creating a project is an organisation-level action, and most
+# runs target one that already exists.
+#
+# Turned on, Terraform creates the project and `destroy` deletes it along with
+# everything inside - the cleanest possible teardown. It needs a parent and a
+# billing account:
+#   gcloud organizations list
+#   gcloud billing accounts list
+#
+# create_project          = true
+# org_id                  = "775566979306"
+# billing_account         = "0183E5-447B34-776DEB"
+# project_deletion_policy = "DELETE"    # PREVENT would leave the project behind
+#
+# If the project ALREADY exists and you want Terraform to manage it, import it
+# once - otherwise the apply fails with "project already exists":
+#
+#   terraform -chdir=stacks/gcp import 'google_project.this[0]' <project-id>
+#   terraform -chdir=stacks/gcp import \
+#     'google_project_service.this["compute.googleapis.com"]' \
+#     '<project-id>/compute.googleapis.com'
+#
+# GCP never releases a project ID: one destroyed this way cannot be recreated
+# under the same name.
+region         = "us-central1"
+zone           = "us-central1-a"
+instance_count = 2
+machine_type   = "e2-medium"
+os             = "rhel9"
+# --- placement ---------------------------------------------------------------
+# By default all of these instances take the placement from private_instances in
+# ../../common.tfvars: all public, or all private behind the NAT gateway.
+#
+# To mix both in this one cloud, set the two counts instead. instance_count and
+# private_instances are then ignored here. For two private and one public:
+#
+# private_instance_count = 2
+# public_instance_count  = 1
+
+# root_volume_size = 30
+# subnet_cidr      = "10.43.0.0/20"
+
+# A custom image instead of the stock RHEL family:
+# image = "my-project/my-hardened-rhel9"

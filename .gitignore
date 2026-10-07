@@ -1,0 +1,30 @@
+# Local copies of the env files, so site-specific values and secrets stay out
+# of git:  cp vm.env vm.env.local && vi vm.env.local
+*.env.local
+
+# Rendered output and scratch files
+*.rendered.yaml
+
+# --- Terraform ---------------------------------------------------------------
+# Provider plugins and module caches: large, and re-created by 'terraform init'.
+**/.terraform/*
+# Local state, and the backups Terraform leaves beside it. State can contain
+# instance addresses and anything a provider chose to record, so it is never
+# committed.
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+# Real variable files: these carry account ids, CIDRs and sometimes secrets.
+# The *.example files next to them are what belongs in git.
+terraform/common.tfvars
+terraform/stacks/*/*.tfvars
+!terraform/**/*.tfvars.example
+# Saved terraform outputs. Not secrets, but they describe your account's
+# addresses and resource ids, and they go stale - regenerate any time with
+# ./deploy.sh output <cloud>
+terraform/outputs/
+
+# The lock file IS committed on purpose - it pins provider versions - so it is
+# deliberately not listed here.

@@ -1,9 +1,16 @@
-# Rendered by install-ms-vm.sh - edit the template, not this file.
+# Rendered by install-vm.sh from templates/agent.config.yaml.tmpl - edit the
+# template and re-run the script rather than this file.
 #
-# The credential comes from Hydra, through the local shim:
+# How the Onboarding Agent gets its credential:
 #
-#   Onboarding Agent -> ext-jwt-credential plugin -> http://127.0.0.1:PORT/token
-#                                                 -> hydra ... service token <audience>
+#   Onboarding Agent
+#     -> ext-jwt-credential plugin
+#        -> POST ${KEYCLOAK_REALM_URL}/protocol/openid-connect/token
+#           grant_type=client_credentials
+#        <- {"access_token": "<JWT>", "expires_in": 900, ...}
+#
+# The VM authenticates as an OAuth 2.0 client, so no user credentials live on
+# it - only the client secret, in ${CLIENT_SECRET_FILE}, mode 0600.
 apiVersion: config.agent.onboarding.tetrate.io/v1alpha1
 kind: AgentConfiguration
 host:
@@ -13,52 +20,69 @@ host:
         name: ext-jwt-credential
         path: ${PLUGIN_PATH}
         env:
-        # --- the issuer -------------------------------------------------------
-        # the 'iss' claim of the Hydra token; the ControlPlane must trust it
+        # --- the external JWT issuer ------------------------------------------
+        # Must equal the 'iss' claim of the token and the issuer the ControlPlane
+        # is told to trust (k8s/02-control-plane-patch.yaml). No trailing slash.
         - name: EXT_JWT_ISSUER
-          value: ${HYDRA_ISSUER}
-        # the local shim, not a real OAuth server: discovery is off and the
-        # endpoint is pinned
-        - name: EXT_JWT_DISCOVERY_ENABLED
-          value: "false"
+          value: ${KEYCLOAK_REALM_URL}
+        # Pinned, so no OIDC discovery request sits on the critical path.
         - name: EXT_JWT_TOKEN_ENDPOINT
-          value: http://${SHIM_LISTEN_ADDRESS}:${SHIM_LISTEN_PORT}/token
+          value: ${KEYCLOAK_REALM_URL}/protocol/openid-connect/token
+        - name: EXT_JWT_JWKS_URI
+          value: ${KEYCLOAK_REALM_URL}/protocol/openid-connect/certs
 
-        # --- how the plugin talks to the shim ---------------------------------
+        # --- how the VM authenticates to Keycloak -----------------------------
+        # client_credentials: the VM is the client, there is no end user.
         - name: EXT_JWT_GRANT_TYPE
           value: client_credentials
-        # any name: the shim does not identify clients, it only checks the secret
         - name: EXT_JWT_CLIENT_ID
-          value: onboarding-agent
+          value: ${KEYCLOAK_CLIENT_ID}
         - name: EXT_JWT_CLIENT_AUTH_METHOD
           value: client_secret_post
         - name: EXT_JWT_CLIENT_SECRET_FILE
-          value: ${SHIM_SECRET_FILE}
+          value: ${CLIENT_SECRET_FILE}
+${CA_FILE_ENV}
 
-        # --- the audience -----------------------------------------------------
-        # the plugin sends the UID of the Workload Onboarding Plane as the
-        # 'audience' parameter; the shim passes it to the hydra command, and
-        # Hydra mints the token for it
+        # --- the audience of the issued token ---------------------------------
+        # The plugin asks Keycloak for a token whose audience is the UID of the
+        # Workload Onboarding Plane. Keycloak ignores the 'audience' request
+        # parameter for the client_credentials grant, so the UID is put into
+        # 'aud' by an Audience protocol mapper on the client instead
+        # (k8s/keycloak/add-audience.sh). 'param' is kept rather than 'none' so
+        # the plugin still checks that 'aud' came back with the UID in it.
         - name: EXT_JWT_AUDIENCE_MODE
           value: param
-        - name: EXT_JWT_AUDIENCE_PARAM
-          value: audience
-        # fail here rather than at onboarding time if 'aud' comes back wrong
+
+        # --- safety nets ------------------------------------------------------
+        # Verify the signature and 'iss' here, so a bad token is caught on the VM
+        # rather than silently rejected by the plane.
+        - name: EXT_JWT_VERIFY_TOKEN
+          value: "true"
         - name: EXT_JWT_REQUIRE_AUDIENCE
           value: "true"
-${JWKS_ENV}
-        # --- resilience / caching ---------------------------------------------
-        # Hydra tokens live an hour; renew a minute early
+        # Renew a minute before 'exp' rather than at it.
         - name: EXT_JWT_EXPIRY_SKEW
           value: 60s
+
+        # --- resilience / caching ---------------------------------------------
         - name: EXT_JWT_REQUEST_TIMEOUT
-          value: 90s
+          value: 10s
         - name: EXT_JWT_TIMEOUT
-          value: 120s
+          value: 60s
         - name: EXT_JWT_RETRY_MAX_ATTEMPTS
           value: "3"
+        # The agent starts a fresh plugin process per credential request; the
+        # cache keeps Keycloak from being called more often than necessary.
         - name: EXT_JWT_CACHE_FILE
           value: ${CREDENTIAL_CACHE_FILE}
 
         - name: EXT_JWT_LOG_LEVEL
           value: info
+
+    # --- how the agent learns this host's addresses -------------------------
+    # Rendered from HOSTINFO_MODE in the env file. The plugin is used by default
+    # because the agent's built-in "basic" mode only enumerates local network
+    # interfaces, and on AWS, GCP and Azure a public address is NAT'd to the
+    # instance rather than configured on an interface - so a workload registered
+    # with connectedOver INTERNET would have no public address to advertise.
+${HOSTINFO_STANZA}
